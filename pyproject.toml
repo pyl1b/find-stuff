@@ -1,0 +1,75 @@
+[project]
+authors = [
+    { name = "Nicu Tofan", email = "nicu.tofan@gmail.com" },
+]
+classifiers = [
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
+  "Development Status :: 3 - Alpha",
+  "License :: Other/Proprietary License",
+  "Typing :: Typed",
+]
+description = "Find stuff in files"
+dynamic = ["version"]
+name = "find_stuff"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "click>=8.1.8,<9",
+  "dotenv>=0.9.9",
+  "requests>=2.32.3,<3",
+  "beautifulsoup4>=4.12,<5",
+  "attrs>=23,<26",
+  "pyyaml>=6.0,<7",
+  "openpyxl>=3.1,<4",
+]
+
+[project.scripts]
+find-stuff = "find_stuff.__main__:cli"
+
+[project.optional-dependencies]
+dev = [
+  "ruff",
+  "build",
+  "mypy>=1.8,<2",
+  "pre-commit",
+  "pytest-cov",
+  "pytest-mock",
+  "pytest",
+  "twine",
+  "wheel",
+  "types-requests",
+  "types-PyYAML",
+  "types-openpyxl",
+]
+
+
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=67.0", "setuptools_scm[toml]>=8"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+exclude = ["venv*", "playground*"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.1-dev"
+write_to = "find_stuff/__version__.py"
+
+[tool.ruff]
+line-length = 79
+target-version = "py313"
+extend-exclude = ["venv", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "ANN"]  # E=pycodestyle, F=pyflakes, I=imports
+ignore = ["ANN102"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+plugins = []

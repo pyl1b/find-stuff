@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "convert [Codul Civil] to yaml",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "find_stuff.__main__",
+      "args": [
+        "py",
+        "${workspaceFolder}/playground",
+        "import", "os"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "windows": {
+        "python": "${workspaceFolder}\\venv\\Scripts\\python.exe"
+      }
+    }
+  ]
+}
