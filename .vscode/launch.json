@@ -2,14 +2,16 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "convert [Codul Civil] to yaml",
+      "name": "rebuild index",
       "type": "debugpy",
       "request": "launch",
       "module": "find_stuff.__main__",
       "args": [
-        "py",
-        "${workspaceFolder}/playground",
-        "import", "os"
+        "rebuild-index",
+        "${workspaceFolder}",
+        "--db",
+        "${workspaceFolder}/playground/index.sqlite3",
+        "--ext", "py"
       ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",

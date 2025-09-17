@@ -19,7 +19,7 @@ import sqlite3
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Sequence, Tuple
+from typing import Dict, Iterator, List, Sequence, Tuple, Optional
 
 
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -96,18 +96,28 @@ def _git_tracked_files(repo_root: Path) -> List[Path]:
     return [repo_root / rel for rel in relpaths]
 
 
-def list_git_tracked_python_files(repo_root: Path) -> List[Path]:
-    """Enumerate ``.py`` files tracked by git in a repository.
+def list_git_tracked_files(
+    repo_root: Path, file_types: Sequence[str]
+) -> List[Path]:
+    """Enumerate files with given extensions that are tracked by git.
 
     Args:
         repo_root: The repository root path.
+        file_types: One or more file extensions to include. Each entry may be
+            specified with or without a leading dot (e.g. "py" or ".py").
 
     Returns:
-        List of absolute paths to tracked Python files.
+        List of absolute paths to tracked files that match the extensions.
     """
 
     candidates = _git_tracked_files(repo_root)
-    return [p for p in candidates if p.suffix == ".py"]
+    if not file_types:
+        return []
+
+    normalized_exts = {
+        "." + ext.lstrip(".").lower() for ext in file_types if ext.strip()
+    }
+    return [p for p in candidates if p.suffix.lower() in normalized_exts]
 
 
 def _iter_token_postings(file_path: Path) -> Iterator[Posting]:
@@ -196,7 +206,11 @@ def _db_init(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def rebuild_index(root: Path, db_path: Path) -> None:
+def rebuild_index(
+    root: Path,
+    db_path: Path,
+    file_types: Optional[Sequence[str]] = ("py",),
+) -> None:
     """Rebuild the index for all git repositories under a root directory.
 
     This clears and recreates the SQLite database at ``db_path``.
@@ -204,6 +218,8 @@ def rebuild_index(root: Path, db_path: Path) -> None:
     Args:
         root: Root directory to scan recursively for repositories.
         db_path: Path to the SQLite database to (re)build.
+        file_types: File extensions to include while indexing. Defaults to
+            ("py",).
     """
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,8 +238,10 @@ def rebuild_index(root: Path, db_path: Path) -> None:
             repo_id = cur.lastrowid
 
             # Enumerate files and index tokens
-            py_files = list_git_tracked_python_files(repo_root)
-            for fpath in py_files:
+            selected_files = list_git_tracked_files(
+                repo_root, file_types or ("py",)
+            )
+            for fpath in selected_files:
                 relpath = os.path.relpath(fpath, repo_root)
                 cur.execute(
                     (
@@ -344,6 +362,7 @@ def search_files(
     require_all_terms: bool = True,
     regex: bool = False,
     case_sensitive: bool = False,
+    file_types: Optional[Sequence[str]] = None,
 ) -> List[Tuple[Path, int]]:
     """Search for files containing specified terms.
 
@@ -355,6 +374,9 @@ def search_files(
             otherwise any.
         regex: Treat terms as regular expressions.
         case_sensitive: Use case-sensitive matching.
+        file_types: If provided, restrict results to files whose extension
+            matches one of these. Entries can include or omit the leading dot
+            (e.g. "py" or ".py").
 
     Returns:
         List of tuples ``(file_path, score)`` where score is the number of
@@ -457,6 +479,37 @@ def search_files(
 
         if not file_to_count:
             return []
+
+        # Optionally filter by file extension before sorting/limiting
+        if file_types:
+            normalized_exts = {
+                "." + ext.lstrip(".").lower()
+                for ext in file_types
+                if ext.strip()
+            }
+            if normalized_exts:
+                all_ids = list(file_to_count.keys())
+                cur.execute(
+                    (
+                        "SELECT id, abspath FROM files WHERE id IN ("
+                        + ",".join(["?"] * len(all_ids))
+                        + ")"
+                    ),
+                    all_ids,
+                )
+                allowed_ids = {
+                    int(i)
+                    for i, p in cur.fetchall()
+                    if Path(p).suffix.lower() in normalized_exts
+                }
+                if allowed_ids:
+                    file_to_count = {
+                        fid: cnt
+                        for fid, cnt in file_to_count.items()
+                        if fid in allowed_ids
+                    }
+                else:
+                    return []
 
         # Map file ids to absolute paths
         file_ids_sorted = [

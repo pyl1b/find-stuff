@@ -44,21 +44,6 @@ def cli(debug: bool, trace: bool, log_file: Optional[str] = None) -> None:
     load_dotenv()
 
 
-@cli.command(name="py")
-@click.argument("path")
-@click.argument("query", nargs=-1)
-def find_py_code(
-    path: str,
-    query: Tuple[str, ...],
-) -> None:
-    """Find Python code in a file or directory.
-
-    Args:
-        path: Path to the file or directory to search.
-        query: Query to search for.
-    """
-
-
 @cli.command(name="rebuild-index")
 @click.argument(
     "root", type=click.Path(file_okay=False, dir_okay=True, exists=True)
@@ -73,17 +58,33 @@ def find_py_code(
     show_default=True,
     help="Path to the SQLite index database.",
 )
-def cli_rebuild_index(root: str, db_path: Path) -> None:
+@click.option(
+    "--ext",
+    "exts",
+    multiple=True,
+    help=(
+        "File extension to include (repeatable). "
+        "May be given with or without leading dot. Default: py"
+    ),
+)
+def cli_rebuild_index(root: str, db_path: Path, exts: Tuple[str, ...]) -> None:
     """Rebuild the index for git-tracked Python files under ROOT.
 
     Args:
         root: Directory to scan recursively for repositories.
         db_path: Path to the SQLite database to (re)build.
+        exts: One or more file extensions to include.
     """
 
     root_path = Path(root)
-    click.echo(f"Rebuilding index from {root_path} into {db_path} ...")
-    rebuild_index(root_path, db_path)
+    exts_list = list(exts) if exts else ["py"]
+    click.echo(
+        (
+            "Rebuilding index from "
+            f"{root_path} into {db_path} for *.{', *.'.join(exts_list)} ..."
+        )
+    )
+    rebuild_index(root_path, db_path, file_types=exts_list)
     click.echo("Done.")
 
 
@@ -128,6 +129,16 @@ def cli_rebuild_index(root: str, db_path: Path) -> None:
     show_default=True,
     help="Maximum number of results.",
 )
+@click.option(
+    "--ext",
+    "exts",
+    multiple=True,
+    help=(
+        "File extension to include (repeatable). "
+        "May be given with or without leading dot. If omitted, "
+        "no extension filter is applied."
+    ),
+)
 @click.argument("terms", nargs=-1, required=True)
 def cli_search(
     db_path: Path,
@@ -136,6 +147,7 @@ def cli_search(
     case_sensitive: bool,
     limit: int,
     terms: Tuple[str, ...],
+    exts: Tuple[str, ...],
 ) -> None:
     """Search indexed files for TERMS.
 
@@ -155,6 +167,7 @@ def cli_search(
         require_all_terms=require_all,
         regex=regex,
         case_sensitive=case_sensitive,
+        file_types=list(exts) if exts else None,
     )
 
     for path, score in results:
