@@ -39,6 +39,8 @@ def _init_git_repo(repo_dir: Path, files: List[Tuple[str, str]]) -> None:
     # Configure identity locally to avoid relying on global config
     _run(["git", "config", "user.email", "test@example.com"], repo_dir)
     _run(["git", "config", "user.name", "Test User"], repo_dir)
+    # Disable GPG signing to prevent interactive passphrase prompt in CI
+    _run(["git", "config", "commit.gpgsign", "false"], repo_dir)
     _run(["git", "commit", "-m", "init"], repo_dir)
 
 
@@ -130,6 +132,55 @@ def test_rebuild_index_creates_db_and_tokens(tmp_path: Path) -> None:
         cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = {r[0] for r in cur.fetchall()}
         assert {"repositories", "files", "tokens", "postings"}.issubset(tables)
+    finally:
+        conn.close()
+
+
+@pytest.mark.skipif(
+    not _git_available(), reason="git is required for this test"
+)
+def test_add_to_index_appends_without_wiping(tmp_path: Path) -> None:
+    repo1 = tmp_path / "repo1"
+    _init_git_repo(
+        repo1,
+        files=[
+            ("a.py", "alpha = 1\n"),
+        ],
+    )
+
+    db_path = tmp_path / "index.sqlite3"
+    indexing.rebuild_index(tmp_path, db_path, file_types=("py",))
+
+    # Add a second repository later
+    repo2 = tmp_path / "repo2"
+    _init_git_repo(
+        repo2,
+        files=[
+            ("b.py", "beta = 2\n"),
+        ],
+    )
+
+    # Append without dropping existing data
+    indexing.add_to_index(tmp_path, db_path, file_types=("py",))
+
+    # Search should find symbols from both repos
+    res_alpha = indexing.search_files(
+        db_path, ["alpha"], require_all_terms=True
+    )
+    res_beta = indexing.search_files(db_path, ["beta"], require_all_terms=True)
+
+    assert any(str(p).endswith("a.py") for p, _ in res_alpha)
+    assert any(str(p).endswith("b.py") for p, _ in res_beta)
+
+    # Calling add_to_index again should not duplicate repo1 or repo2
+    indexing.add_to_index(tmp_path, db_path, file_types=("py",))
+    # Ensure repository count remains 2
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM repositories")
+        (count_repos,) = cur.fetchone()
+        assert int(count_repos) == 2
     finally:
         conn.close()
 

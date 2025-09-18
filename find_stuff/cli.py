@@ -6,7 +6,7 @@ import click
 from dotenv import load_dotenv  # type: ignore[import-not-found]
 
 from find_stuff.__version__ import __version__
-from find_stuff.indexing import rebuild_index, search_files
+from find_stuff.indexing import add_to_index, rebuild_index, search_files
 
 
 @click.group()
@@ -86,6 +86,48 @@ def cli_rebuild_index(root: str, db_path: Path, exts: Tuple[str, ...]) -> None:
         )
     )
     rebuild_index(root_path, db_path, file_types=exts_list)
+    click.echo("Done.")
+
+
+@cli.command(name="add-to-index")
+@click.argument(
+    "root", type=click.Path(file_okay=False, dir_okay=True, exists=True)
+)
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(
+        file_okay=True, dir_okay=False, writable=True, path_type=Path
+    ),
+    default=Path(".find_stuff/index.sqlite3"),
+    show_default=True,
+    help="Path to the SQLite index database.",
+)
+@click.option(
+    "--ext",
+    "exts",
+    multiple=True,
+    help=(
+        "File extension to include (repeatable). "
+        "May be given with or without leading dot. Default: py"
+    ),
+)
+def cli_add_to_index(root: str, db_path: Path, exts: Tuple[str, ...]) -> None:
+    """Add repositories/files under ROOT into the existing index.
+
+    This command preserves existing content in the database and only appends
+    repositories that are not already present.
+    """
+
+    root_path = Path(root)
+    exts_list = list(exts) if exts else ["py"]
+    click.echo(
+        (
+            "Adding to index from "
+            f"{root_path} into {db_path} for *.{', *.'.join(exts_list)} ..."
+        )
+    )
+    add_to_index(root_path, db_path, file_types=exts_list)
     click.echo("Done.")
 
 

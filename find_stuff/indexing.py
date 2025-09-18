@@ -33,6 +33,7 @@ from find_stuff.models import (
 from find_stuff.models import (
     Repository,
     create_engine_for_path,
+    ensure_db,
     init_db,
 )
 from find_stuff.models import (
@@ -101,16 +102,26 @@ def _git_tracked_files(repo_root: Path) -> List[Path]:
     """
 
     # Use `-z` to avoid path issues and simplify splitting.
-    result = subprocess.run(
-        ["git", "ls-files", "-z"],
-        cwd=str(repo_root),
-        check=True,
-        capture_output=True,
-    )
-    relpaths = [
-        p for p in result.stdout.decode("utf-8", "ignore").split("\x00") if p
-    ]
-    return [repo_root / rel for rel in relpaths]
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=str(repo_root),
+            check=True,
+            capture_output=True,
+        )
+        relpaths = [
+            p
+            for p in result.stdout.decode("utf-8", "ignore").split("\x00")
+            if p
+        ]
+        return [repo_root / rel for rel in relpaths]
+    except Exception as e:
+        print(f"Error listing git tracked files for {repo_root}: {e}")
+        subprocess.run(
+            ["git", "ls-files"],
+            cwd=str(repo_root),
+        )
+        return []
 
 
 def list_git_tracked_files(
@@ -258,6 +269,111 @@ def rebuild_index(
                 token_to_id = {tok: int(tid) for tid, tok in all_rows}
 
                 # Create postings
+                session.bulk_save_objects(
+                    [
+                        SAPosting(
+                            file_id=db_file.id,
+                            token_id=token_to_id[tok],
+                            line=line,
+                            col=col,
+                        )
+                        for (tok, line, col) in tokens_in_file
+                    ]
+                )
+
+        session.commit()
+
+
+def add_to_index(
+    root: Path,
+    db_path: Path,
+    file_types: Optional[Sequence[str]] = ("py",),
+) -> None:
+    """Add repositories and files under a root without clearing the index.
+
+    This function discovers git repositories under ``root`` and appends their
+    files and token postings to the existing SQLite database at ``db_path``.
+    Existing data is preserved. Repositories already present in the database
+    (by exact root path) are skipped to avoid duplication.
+
+    Args:
+        root: Root directory to scan recursively for repositories.
+        db_path: Path to the SQLite database to update or create.
+        file_types: File extensions to include while indexing. Defaults to
+            ("py",).
+    """
+
+    # Ensure DB directory exists and schema is present without dropping data
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine_for_path(db_path)
+    ensure_db(engine)
+
+    repos = find_git_repos(root)
+    if not repos:
+        return
+
+    with Session(engine) as session:
+        # Fetch existing repository roots for skip logic
+        existing_roots = {
+            r for (r,) in session.execute(select(Repository.root)).all()
+        }
+
+        for repo_root in repos:
+            repo_root_str = str(repo_root)
+            if repo_root_str in existing_roots:
+                # Skip repositories already in the index
+                continue
+
+            repo = Repository(root=repo_root_str)
+            session.add(repo)
+            session.flush()  # populate repo.id
+
+            selected_files = list_git_tracked_files(
+                repo_root, file_types or ("py",)
+            )
+            for fpath in selected_files:
+                relpath = os.path.relpath(fpath, repo_root)
+                db_file = SAFile(
+                    repo_id=repo.id, relpath=relpath, abspath=str(fpath)
+                )
+                session.add(db_file)
+                session.flush()  # populate db_file.id
+
+                tokens_in_file: List[Tuple[str, int, int]] = []
+                for post in _iter_token_postings(fpath):
+                    tokens_in_file.append((post.token, post.line, post.column))
+
+                if not tokens_in_file:
+                    continue
+
+                unique_tokens = sorted({t for t, _l, _c in tokens_in_file})
+
+                existing_rows = session.execute(
+                    select(SAToken.id, SAToken.token).where(
+                        SAToken.token.in_(unique_tokens)
+                    )
+                ).all()
+                existing_map = {tok: tid for tid, tok in existing_rows}
+                missing_tokens = [
+                    t for t in unique_tokens if t not in existing_map
+                ]
+
+                if missing_tokens:
+                    session.bulk_save_objects(
+                        [
+                            SAToken(token=t, token_lc=t.lower())
+                            for t in missing_tokens
+                        ]
+                    )
+                    session.flush()
+
+                all_rows = session.execute(
+                    select(SAToken.id, SAToken.token).where(
+                        SAToken.token.in_(unique_tokens)
+                    )
+                ).all()
+                token_to_id = {tok: int(tid) for tid, tok in all_rows}
+
                 session.bulk_save_objects(
                     [
                         SAPosting(

@@ -172,3 +172,21 @@ def init_db(engine: Engine) -> None:
     # Recreate schema
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+
+
+def ensure_db(engine: Engine) -> None:
+    """Ensure database schema exists without dropping existing data.
+
+    Applies the same pragmas as ``init_db`` but only creates missing tables.
+
+    Args:
+        engine: SQLAlchemy engine bound to the target SQLite database.
+    """
+
+    # Apply pragmas to configure SQLite for our usage pattern
+    with engine.begin() as conn:
+        conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
+        conn.exec_driver_sql("PRAGMA synchronous=NORMAL;")
+
+    # Create missing tables if they do not already exist
+    Base.metadata.create_all(engine)

@@ -94,3 +94,43 @@ def test_cli_search_flags_behavior(tmp_path: Path) -> None:
     assert res_any.exit_code == 0
     out_any = res_any.output
     assert "a.py" in out_any and "b.py" in out_any
+
+
+@pytest.mark.skipif(
+    not _git_available(), reason="git is required for this test"
+)
+def test_cli_add_to_index_appends(tmp_path: Path) -> None:
+    repo1 = tmp_path / "repo1"
+    _init_git_repo(
+        repo1,
+        files=[
+            ("a.py", "alpha = 1\n"),
+        ],
+    )
+
+    db = tmp_path / ".find_stuff" / "index.sqlite3"
+    runner = CliRunner()
+    res_rebuild = runner.invoke(
+        cli, ["rebuild-index", str(tmp_path), "--db", str(db), "--ext", "py"]
+    )
+    assert res_rebuild.exit_code == 0, res_rebuild.output
+
+    # Create a second repo and add to index non-destructively
+    repo2 = tmp_path / "repo2"
+    _init_git_repo(
+        repo2,
+        files=[
+            ("b.py", "beta = 2\n"),
+        ],
+    )
+
+    res_add = runner.invoke(
+        cli, ["add-to-index", str(tmp_path), "--db", str(db), "--ext", "py"]
+    )
+    assert res_add.exit_code == 0, res_add.output
+
+    # Search should find both files
+    res_search_alpha = runner.invoke(cli, ["search", "--db", str(db), "alpha"])
+    res_search_beta = runner.invoke(cli, ["search", "--db", str(db), "beta"])
+    assert "a.py" in res_search_alpha.output
+    assert "b.py" in res_search_beta.output

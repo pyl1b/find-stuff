@@ -1,5 +1,91 @@
 {
   "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "rebuild py index",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
+      "windows": {
+        "command": "${workspaceFolder}\\venv\\Scripts\\python.exe"
+      },
+      "args": [
+        "find_stuff",
+        "rebuild-index",
+        "--db", "${workspaceFolder}/playground/index.sqlite3",
+        "--ext",
+        "py",
+        "${input:root}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+    },
+    {
+      "label": "add to py index",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
+      "windows": {
+        "command": "${workspaceFolder}\\venv\\Scripts\\python.exe"
+      },
+      "args": [
+        "find_stuff",
+        "add-to-index",
+        "--db", "${workspaceFolder}/playground/index.sqlite3",
+        "--ext",
+        "py",
+        "${input:root}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+    },
+    {
+      "label": "search py code",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
+      "windows": {
+        "command": "${workspaceFolder}\\venv\\Scripts\\python.exe"
+      },
+      "args": [
+        "find_stuff",
+        "search",
+        "--db", "${workspaceFolder}/playground/index.sqlite3",
+        "--ext",
+        "py",
+        "${input:query}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+    }
+  ],
+  "inputs": [
+    {
+      "id": "root",
+      "type": "promptString",
+      "description": "Root directory to scan recursively for repositories."
+    },
+    {
+      "id": "query",
+      "type": "promptString",
+      "description": "Query to search for."
+    }
+  ]
 }
 
 
