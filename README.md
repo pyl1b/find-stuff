@@ -392,13 +392,28 @@ python -m find_stuff --help
 - Follow ruff formatting and linting configuration in `pyproject.toml`
 - Keep public APIs stable; if you change them, update `CHANGELOG.md`
 
-### Release (local)
+### Release
+
+On the local machine create a package and test it.
 
 ```bash
 pip install build twine
 python -m build
 twine check dist/*
 ```
+
+Then create a new tag and push it to GitHub:
+
+```bash
+git tag -a v0.1.0 -m "Release version 0.1.0"
+
+git push origin v0.1.0
+# or
+git push origin --tags
+```
+
+In the GitHub repository page create a new Release. This will trigger the
+workflow for publishing in PyPi.
 
 ---
 
