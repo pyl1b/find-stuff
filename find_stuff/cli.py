@@ -11,6 +11,18 @@ from find_stuff.__version__ import __version__
 from find_stuff.indexing import add_to_index, rebuild_index, search_files
 from find_stuff.models import File as SAFile
 from find_stuff.models import create_engine_for_path
+from find_stuff.navigation import (
+    DirEntry,
+    FileEntry,
+    RepoEntry,
+    file_status,
+    list_repo_dir_contents,
+    list_repositories,
+    open_in_code,
+    resolve_dir_by_input,
+    resolve_file_by_input,
+    resolve_repo_by_input,
+)
 
 
 @click.group()
@@ -23,7 +35,7 @@ from find_stuff.models import create_engine_for_path
 @click.option(
     "--log-file",
     type=click.Path(file_okay=True, dir_okay=False),
-    envvar="LEROPA_LOG_FILE",
+    envvar="FIND_STUFF_LOG_FILE",
     help="Path to write log output to instead of stderr.",
 )
 @click.version_option(__version__, prog_name="find_stuff")
@@ -322,3 +334,368 @@ def cli_file_info(db_path: Path, file_path: Path) -> None:
                 "(clock or copy?)"
             )
             return
+
+
+def _clear_screen() -> None:
+    """Clear the terminal screen in a cross-platform manner."""
+
+    import os
+
+    try:
+        if os.name == "nt":
+            os.system("cls")
+        else:
+            os.system("clear")
+    except Exception:
+        pass
+
+
+def _read_key() -> Optional[str]:
+    """Read a single key from the keyboard.
+
+    Returns simple strings: 'UP', 'DOWN', 'ENTER', 'BACKSPACE', single chars,
+    or None if not supported.
+    """
+
+    try:
+        import msvcrt  # type: ignore
+
+        ch = msvcrt.getwch()
+        if ch in ("\r", "\n"):
+            return "ENTER"
+        if ch == "\x08":
+            return "BACKSPACE"
+        if ch in ("\x00", "\xe0"):
+            ch2 = msvcrt.getwch()
+            if ch2 == "H":
+                return "UP"
+            if ch2 == "P":
+                return "DOWN"
+            return None
+        return ch
+    except Exception:
+        return None
+
+
+def _prompt(text: str) -> str:
+    """Prompt for input robustly."""
+
+    try:
+        return input(text)
+    except EOFError:
+        return ""
+    except KeyboardInterrupt:
+        return ""
+
+
+def _print_header(title: str, subtitle: Optional[str] = None) -> None:
+    """Print a section header."""
+
+    click.echo(title)
+    if subtitle:
+        click.echo(subtitle)
+    click.echo("")
+
+
+def _render_list(title: str, items: Tuple[str, ...], selected: int) -> None:
+    """Render simple list UI."""
+
+    _clear_screen()
+    _print_header(title)
+    for idx, line in enumerate(items, start=1):
+        prefix = "> " if (idx - 1) == selected else "  "
+        click.echo(f"{prefix}{line}")
+    click.echo("")
+    click.echo(
+        "Arrows: navigate  Enter: select  b: back  i: input  c: open in Code"
+    )
+    click.echo("q: quit")
+
+
+def _fmt_repo_line(entry: RepoEntry) -> str:
+    return f"{entry.index}. {entry.name}\t{entry.root}"
+
+
+def _fmt_dir_line(base: Path, entry: DirEntry) -> str:
+    full = base / entry.name
+    return f"{entry.index}. {entry.name}\t{full}"
+
+
+def _fmt_file_line(entry: FileEntry) -> str:
+    return f"{entry.index}. {entry.name}\t{entry.path}"
+
+
+@cli.command(name="browse")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(
+        file_okay=True, dir_okay=False, readable=True, path_type=Path
+    ),
+    default=Path(".find_stuff/index.sqlite3"),
+    show_default=True,
+    help="Path to the SQLite index database.",
+)
+def cli_browse(db_path: Path) -> None:
+    """Interactively browse repositories, directories, and files.
+
+    Use Up/Down to navigate and Enter to select. Press 'i' to type an index,
+    name or path (quotes allowed). Press 'b' to go to the parent, 'c' to open
+    the selected item in VS Code, and 'q' to quit.
+    """
+
+    # State machine: level = 'repos' or 'dir'
+    level = "repos"
+    selected = 0
+    repos = list_repositories(db_path)
+    if not repos:
+        click.echo("No repositories in the database.")
+        return
+    current_repo: Optional[RepoEntry] = None
+    rel_dir: str = ""
+
+    while True:
+        try:
+            if level == "repos":
+                lines = tuple(_fmt_repo_line(r) for r in repos)
+                if selected >= len(repos):
+                    selected = 0
+                _render_list(
+                    "Repositories (c: open repo in Code)", lines, selected
+                )
+
+                key = _read_key()
+                if key is None:
+                    # Fallback to prompt mode
+                    text = _prompt("Enter index/name/path (q to quit): ")
+                    if text.lower() in {"q", "quit", ":q"}:
+                        return
+                    if not text.strip():
+                        continue
+                    resolved = resolve_repo_by_input(repos, text)
+                    if resolved is None:
+                        click.echo("Not found.")
+                        _prompt("Press Enter...")
+                        continue
+                    current_repo = resolved
+                    level = "dir"
+                    selected = 0
+                    rel_dir = ""
+                    continue
+
+                if key == "q":
+                    return
+                if key == "UP":
+                    selected = (selected - 1) % len(repos)
+                    continue
+                if key == "DOWN":
+                    selected = (selected + 1) % len(repos)
+                    continue
+                if key == "i":
+                    text = _prompt("Enter index/name/path: ")
+                    resolved = resolve_repo_by_input(repos, text)
+                    if resolved is None:
+                        continue
+                    current_repo = resolved
+                    level = "dir"
+                    selected = 0
+                    rel_dir = ""
+                    continue
+                if key == "c":
+                    if repos:
+                        ok, msg = open_in_code(repos[selected].root)
+                        if not ok:
+                            click.echo(msg)
+                            _prompt("Press Enter...")
+                    continue
+                if key == "ENTER":
+                    current_repo = repos[selected]
+                    level = "dir"
+                    selected = 0
+                    rel_dir = ""
+                    continue
+
+            # Directory level inside current_repo
+            assert current_repo is not None
+            base = (
+                current_repo.root / rel_dir if rel_dir else current_repo.root
+            )
+            dirs, files = list_repo_dir_contents(
+                db_path, current_repo.root, rel_dir
+            )
+            combined = [("D", d, _fmt_dir_line(base, d)) for d in dirs] + [
+                ("F", f, _fmt_file_line(f)) for f in files
+            ]
+            if not combined:
+                # Empty dir; allow back
+                combined = []
+            if selected >= len(combined):
+                selected = 0
+
+            _render_list(
+                f"{current_repo.name} \\ {rel_dir or '.'} (c: open in Code)",
+                tuple(line for _t, _e, line in combined),
+                selected,
+            )
+
+            key = _read_key()
+            if key is None:
+                text = _prompt("Enter index/name/path (b: back, q: quit): ")
+                if text.lower() in {"q", "quit", ":q"}:
+                    return
+                if text.lower() in {"b", "back"}:
+                    if rel_dir:
+                        # Up one level
+                        rel_dir = str(Path(rel_dir).parent).replace("\\", "/")
+                        if rel_dir == ".":
+                            rel_dir = ""
+                        selected = 0
+                        continue
+                    level = "repos"
+                    selected = 0
+                    continue
+                # Resolve directory or file by input
+                # Try directory names first
+                resolved_d = resolve_dir_by_input(dirs, text)
+                if resolved_d is not None:
+                    rel_dir = (
+                        f"{rel_dir}/{resolved_d.name}"
+                        if rel_dir
+                        else resolved_d.name
+                    )
+                    selected = 0
+                    continue
+                resolved_f = resolve_file_by_input(files, text)
+                if resolved_f is not None:
+                    st = file_status(db_path, resolved_f.path)
+                    _clear_screen()
+                    _print_header("File info", str(resolved_f.path))
+                    click.echo(f"in_index: {st.in_index}")
+                    click.echo(f"stored size_bytes: {st.size_bytes}")
+                    click.echo(f"stored mtime_ns: {st.mtime_ns}")
+                    click.echo(f"stored ctime_ns: {st.ctime_ns}")
+                    click.echo(f"stored sha256_hex: {st.sha256_hex}")
+                    click.echo(f"current size_bytes: {st.current_size_bytes}")
+                    click.echo(f"current mtime_ns: {st.current_mtime_ns}")
+                    click.echo(f"current ctime_ns: {st.current_ctime_ns}")
+                    click.echo(f"current sha256_hex: {st.current_sha256_hex}")
+                    click.echo(f"status: {st.status}")
+                    click.echo("")
+                    choice = _prompt(
+                        "Press c to open in Code, Enter to go back: "
+                    )
+                    if choice.lower() == "c":
+                        ok, msg = open_in_code(resolved_f.path)
+                        if not ok:
+                            click.echo(msg)
+                            _prompt("Press Enter...")
+                    continue
+                # Not found
+                click.echo("Not found.")
+                _prompt("Press Enter...")
+                continue
+
+            if key == "q":
+                return
+            if key in {"b", "BACKSPACE"}:
+                if rel_dir:
+                    rel_dir = str(Path(rel_dir).parent).replace("\\", "/")
+                    if rel_dir == ".":
+                        rel_dir = ""
+                    selected = 0
+                else:
+                    level = "repos"
+                    selected = 0
+                continue
+            if key == "UP":
+                selected = (selected - 1) % max(1, len(combined))
+                continue
+            if key == "DOWN":
+                if combined:
+                    selected = (selected + 1) % len(combined)
+                continue
+            if key == "i":
+                text = _prompt("Enter index/name/path: ")
+                # Try dir then file
+                resolved_d = resolve_dir_by_input(dirs, text)
+                if resolved_d is not None:
+                    rel_dir = (
+                        f"{rel_dir}/{resolved_d.name}"
+                        if rel_dir
+                        else resolved_d.name
+                    )
+                    selected = 0
+                    continue
+                resolved_f = resolve_file_by_input(files, text)
+                if resolved_f is not None:
+                    st = file_status(db_path, resolved_f.path)
+                    _clear_screen()
+                    _print_header("File info", str(resolved_f.path))
+                    click.echo(f"in_index: {st.in_index}")
+                    click.echo(f"stored size_bytes: {st.size_bytes}")
+                    click.echo(f"stored mtime_ns: {st.mtime_ns}")
+                    click.echo(f"stored ctime_ns: {st.ctime_ns}")
+                    click.echo(f"stored sha256_hex: {st.sha256_hex}")
+                    click.echo(f"current size_bytes: {st.current_size_bytes}")
+                    click.echo(f"current mtime_ns: {st.current_mtime_ns}")
+                    click.echo(f"current ctime_ns: {st.current_ctime_ns}")
+                    click.echo(f"current sha256_hex: {st.current_sha256_hex}")
+                    click.echo(f"status: {st.status}")
+                    click.echo("")
+                    choice = _prompt(
+                        "Press c to open in Code, Enter to go back: "
+                    )
+                    if choice.lower() == "c":
+                        ok, msg = open_in_code(resolved_f.path)
+                        if not ok:
+                            click.echo(msg)
+                            _prompt("Press Enter...")
+                    continue
+                continue
+            if key == "c":
+                if not combined:
+                    continue
+                _t, _e, _ = combined[selected]
+                target_path = (
+                    (current_repo.root / _e.name) if _t == "D" else _e.path
+                )
+                ok, msg = open_in_code(target_path)
+                if not ok:
+                    click.echo(msg)
+                    _prompt("Press Enter...")
+                continue
+            if key == "ENTER":
+                if not combined:
+                    continue
+                kind, ent, _line = combined[selected]
+                if kind == "D":
+                    rel_dir = f"{rel_dir}/{ent.name}" if rel_dir else ent.name
+                    selected = 0
+                    continue
+                # File selected -> show info
+                st = file_status(db_path, ent.path)
+                _clear_screen()
+                _print_header("File info", str(ent.path))
+                click.echo(f"in_index: {st.in_index}")
+                click.echo(f"stored size_bytes: {st.size_bytes}")
+                click.echo(f"stored mtime_ns: {st.mtime_ns}")
+                click.echo(f"stored ctime_ns: {st.ctime_ns}")
+                click.echo(f"stored sha256_hex: {st.sha256_hex}")
+                click.echo(f"current size_bytes: {st.current_size_bytes}")
+                click.echo(f"current mtime_ns: {st.current_mtime_ns}")
+                click.echo(f"current ctime_ns: {st.current_ctime_ns}")
+                click.echo(f"current sha256_hex: {st.current_sha256_hex}")
+                click.echo(f"status: {st.status}")
+                click.echo("")
+                choice = _prompt("Press c to open in Code, Enter to go back: ")
+                if choice.lower() == "c":
+                    ok, msg = open_in_code(ent.path)
+                    if not ok:
+                        click.echo(msg)
+                        _prompt("Press Enter...")
+                continue
+        except KeyboardInterrupt:  # pragma: no cover
+            return
+        except Exception as exc:  # pragma: no cover
+            click.echo(f"Error: {exc}")
+            _prompt("Press Enter to continue...")

@@ -38,6 +38,23 @@
       "windows": {
         "python": "${workspaceFolder}\\venv\\Scripts\\python.exe"
       }
+    },
+    {
+      "name": "browse",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "find_stuff.__main__",
+      "args": ["browse", "--db", "${workspaceFolder}/playground/index.sqlite3"],
+    },
+    {
+      "name": "file-info",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "find_stuff.__main__",
+      "args": [
+        "file-info",
+        "--db", "${workspaceFolder}/playground/index.sqlite3",
+        "${workspaceFolder}/playground/a.py"],
     }
   ]
 }

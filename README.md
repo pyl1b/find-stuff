@@ -104,6 +104,29 @@ match.
 
 ---
 
+### browse
+
+Interactively navigate indexed repositories, their directories, and files.
+
+```bash
+find-stuff browse --db D:\\work\\.find_stuff\\index.sqlite3
+```
+
+Controls:
+
+- Up/Down: move selection
+- Enter: select item
+- i: type an index, name or full path (quotes allowed)
+- b or Backspace: go to parent
+- c: open the selected repository/directory/file in VS Code (`code`)
+- q: quit
+
+When you select a file, the tool shows database metadata and whether the file
+has been modified (mtime and hash comparison). If you enter a full path, it
+must be present in the database or an error is shown.
+
+---
+
 ## Library usage
 
 You can also use the Python API:
