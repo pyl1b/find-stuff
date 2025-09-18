@@ -22,7 +22,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from find_stuff.models import (
@@ -452,6 +452,152 @@ def add_to_index(
                 )
 
         session.commit()
+
+
+def refresh_or_add_repo(
+    repo_root: Path,
+    db_path: Path,
+    file_types: Optional[Sequence[str]] = ("py",),
+) -> Tuple[bool, str]:
+    """Refresh an existing repository's data or add it if missing.
+
+    If the repository already exists in the database, remove its files and
+    postings, then re-index tracked files for the provided ``file_types``.
+    If it does not exist, create it and index its files.
+
+    Args:
+        repo_root: Absolute or relative path to the repository root.
+        db_path: Path to the SQLite database.
+        file_types: File extensions to include while indexing. Defaults to
+            ("py",).
+
+    Returns:
+        Tuple of (ok, message). ``ok`` is True on success.
+    """
+
+    try:
+        repo_root = repo_root.resolve()
+    except Exception:
+        return False, "Invalid repository path"
+
+    # Ensure DB exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine_for_path(db_path)
+    ensure_db(engine)
+
+    # Verify this looks like a git repo by attempting to list files
+    tracked = _git_tracked_files(repo_root)
+    if not tracked:
+        # Still allow indexing if there are simply no tracked files selected
+        # but differentiate between 'git not found' and 'no matches' by
+        # attempting a call to git that would fail otherwise was handled above.
+        # We continue; list_git_tracked_files below will filter by extensions.
+        pass
+
+    with Session(engine) as session:
+        existing = session.execute(
+            select(Repository.id).where(Repository.root == str(repo_root))
+        ).first()
+
+        if existing is None:
+            # Create new repository entry
+            repo = Repository(root=str(repo_root))
+            session.add(repo)
+            session.flush()
+        else:
+            repo_id = int(existing[0])
+            # Remove existing postings and files for this repository
+            file_ids = session.scalars(
+                select(SAFile.id).where(SAFile.repo_id == repo_id)
+            ).all()
+            if file_ids:
+                session.execute(
+                    delete(SAPosting).where(SAPosting.file_id.in_(file_ids))
+                )
+            session.execute(delete(SAFile).where(SAFile.repo_id == repo_id))
+            # Reuse existing repository row
+            repo = Repository(
+                id=repo_id,  # type: ignore[arg-type]
+                root=str(repo_root),
+            )
+            session.merge(repo)
+            session.flush()
+
+        # Index files for this repository
+        selected_files = list_git_tracked_files(
+            repo_root, file_types or ("py",)
+        )
+        for fpath in selected_files:
+            relpath = os.path.relpath(fpath, repo_root)
+
+            # Compute and store file metadata
+            try:
+                size_b, mt_ns, ct_ns, digest = _compute_file_metadata(fpath)
+            except Exception:
+                size_b, mt_ns, ct_ns, digest = 0, 0, 0, ""
+
+            db_file = SAFile(
+                repo_id=repo.id,  # type: ignore[arg-type]
+                relpath=relpath,
+                abspath=str(fpath),
+                size_bytes=size_b,
+                mtime_ns=mt_ns,
+                ctime_ns=ct_ns,
+                sha256_hex=digest,
+            )
+            session.add(db_file)
+            session.flush()  # populate db_file.id
+
+            tokens_in_file: List[Tuple[str, int, int]] = []
+            for post in _iter_token_postings(fpath):
+                tokens_in_file.append((post.token, post.line, post.column))
+
+            if not tokens_in_file:
+                continue
+
+            unique_tokens = sorted({t for t, _l, _c in tokens_in_file})
+
+            existing_rows = session.execute(
+                select(SAToken.id, SAToken.token).where(
+                    SAToken.token.in_(unique_tokens)
+                )
+            ).all()
+            existing_map = {tok: tid for tid, tok in existing_rows}
+            missing_tokens = [
+                t for t in unique_tokens if t not in existing_map
+            ]
+
+            if missing_tokens:
+                session.bulk_save_objects(
+                    [
+                        SAToken(token=t, token_lc=t.lower())
+                        for t in missing_tokens
+                    ]
+                )
+                session.flush()
+
+            all_rows = session.execute(
+                select(SAToken.id, SAToken.token).where(
+                    SAToken.token.in_(unique_tokens)
+                )
+            ).all()
+            token_to_id = {tok: int(tid) for tid, tok in all_rows}
+
+            session.bulk_save_objects(
+                [
+                    SAPosting(
+                        file_id=db_file.id,  # type: ignore[arg-type]
+                        token_id=token_to_id[tok],
+                        line=line,
+                        col=col,
+                    )
+                    for (tok, line, col) in tokens_in_file
+                ]
+            )
+
+        session.commit()
+
+    return True, "Repository indexed"
 
 
 def _matching_token_ids(

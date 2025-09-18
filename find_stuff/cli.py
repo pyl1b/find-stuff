@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 import click
 from dotenv import load_dotenv  # type: ignore[import-not-found]
 from InquirerPy.prompts.fuzzy import FuzzyPrompt
+from InquirerPy.prompts.input import InputPrompt
 from InquirerPy.prompts.list import ListPrompt as SelectPrompt
 from InquirerPy.utils import InquirerPyStyle, get_style
 from sqlalchemy import select
@@ -34,7 +35,12 @@ except Exception:  # pragma: no cover
 
 
 from find_stuff.__version__ import __version__
-from find_stuff.indexing import add_to_index, rebuild_index, search_files
+from find_stuff.indexing import (
+    add_to_index,
+    rebuild_index,
+    refresh_or_add_repo,
+    search_files,
+)
 from find_stuff.models import File as SAFile
 from find_stuff.models import create_engine_for_path
 from find_stuff.navigation import (
@@ -564,6 +570,12 @@ def cli_browse(db_path: Path, color: bool) -> None:
                 repo_choices: list[dict[str, object]] = [
                     {"name": r.name, "value": ("repo", r)} for r in repos
                 ]
+                repo_choices.append(
+                    {
+                        "name": "Add or refresh repository by path",
+                        "value": ("add_repo", None),
+                    }
+                )
                 repo_choices.append({"name": "Quit", "value": ("quit", None)})
                 sel_kind, sel_payload = FuzzyPrompt(
                     message="Select repository",
@@ -575,6 +587,30 @@ def cli_browse(db_path: Path, color: bool) -> None:
                 ).execute()
                 if sel_kind == "quit":
                     return
+                if sel_kind == "add_repo":
+                    # Prompt for an absolute repository path
+                    raw = InputPrompt(
+                        message="Enter repository path",
+                        style=_prompt_style(),
+                    ).execute()
+                    raw = (raw or "").strip()
+                    if not raw:
+                        continue
+                    try:
+                        repo_path = Path(raw).expanduser().resolve()
+                    except Exception:
+                        click.echo("Invalid path.")
+                        continue
+
+                    ok, msg = refresh_or_add_repo(
+                        repo_path, db_path, file_types=("py",)
+                    )
+                    if not ok and msg:
+                        click.echo(msg)
+                    else:
+                        # Refresh repositories list
+                        repos = list_repositories(db_path)
+                    continue
                 if sel_kind == "repo":
                     current_repo = sel_payload
                     rel_dir = ""
