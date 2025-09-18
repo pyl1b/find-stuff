@@ -7,6 +7,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Unreleased]
 
 ### Added
+
 - Interactive `browse` CLI command to navigate repositories, directories and files.
   - Up/Down to navigate, Enter to select, `i` to type index/name/path (quotes supported),
     `b`/Backspace to go to parent, `c` to open in VS Code, `q` to quit.
@@ -16,6 +17,5 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   and checking file status. Also includes optional VS Code integration via `code`.
 
 ### Changed
+
 - Documentation updates for the new `browse` command in README.
-
-

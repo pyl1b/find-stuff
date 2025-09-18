@@ -40,6 +40,7 @@
 - In code body use numerous comments to describe what the line or group of
   lines does. Place these comments above the said line of code and add an empty
   line before the comment.
+- Add an entry to CHANGELOG.md whenever you make a change.
   
 ## Don't
 

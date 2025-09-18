@@ -107,23 +107,29 @@ match.
 ### browse
 
 Interactively navigate indexed repositories, their directories, and files.
+Now powered by InquirerPy with fuzzy filtering and colored prompts.
 
 ```bash
 find-stuff browse --db D:\\work\\.find_stuff\\index.sqlite3
 ```
 
+Options:
+
+- `--color/--no-color`: enable/disable colored text in prompts and output
+
 Controls:
 
 - Up/Down: move selection
+- Type to filter: fuzzy match across items
 - Enter: select item
-- i: type an index, name or full path (quotes allowed)
-- b or Backspace: go to parent
-- c: open the selected repository/directory/file in VS Code (`code`)
-- q: quit
+- Change repository: switch to a different repo
+- Open this directory in VS Code: launches `code` in current folder
+- Back from file view: return from file details
+- Quit: exit the browser
 
 When you select a file, the tool shows database metadata and whether the file
-has been modified (mtime and hash comparison). If you enter a full path, it
-must be present in the database or an error is shown.
+has been modified (mtime and hash comparison). Times are printed in a
+human‑readable local format (YYYY‑MM‑DD HH:MM:SS).
 
 ---
 

@@ -44,7 +44,11 @@
       "type": "debugpy",
       "request": "launch",
       "module": "find_stuff.__main__",
-      "args": ["browse", "--db", "${workspaceFolder}/playground/index.sqlite3"],
+      "args": [
+        "browse",
+        "--db", "${workspaceFolder}/playground/index.sqlite3",
+        "--no-color"
+      ],
     },
     {
       "name": "file-info",
