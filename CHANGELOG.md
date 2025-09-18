@@ -2,7 +2,8 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
+The format is based on Keep a Changelog, and this project adheres to Semantic
+Versioning.
 
 ## [Unreleased]
 
@@ -15,6 +16,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
     (mtime/hash) compared to the index.
 - New `find_stuff.navigation` module with helpers for listing and resolving items,
   and checking file status. Also includes optional VS Code integration via `code`.
+- Beginner-friendly install instructions in README.
+- GitHub Actions workflow to run tests on each push and pull request.
+- GitHub Actions workflow to publish to PyPI on GitHub release.
 
 ### Changed
 

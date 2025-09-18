@@ -41,6 +41,7 @@
   lines does. Place these comments above the said line of code and add an empty
   line before the comment.
 - Add an entry to CHANGELOG.md whenever you make a change.
+- In markdown files keep the lines no longer than 80 characters.
   
 ## Don't
 

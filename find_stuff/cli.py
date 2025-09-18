@@ -6,8 +6,32 @@ import click
 from dotenv import load_dotenv  # type: ignore[import-not-found]
 from InquirerPy.prompts.fuzzy import FuzzyPrompt
 from InquirerPy.prompts.list import ListPrompt as SelectPrompt
+from InquirerPy.utils import InquirerPyStyle, get_style
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+# Initialize Colorama to ensure ANSI codes work on Windows terminals
+# Import dynamically to avoid type-stub issues in linting environments
+try:  # pragma: no cover
+    import importlib
+
+    _cm = importlib.import_module("colorama")
+    Fore = _cm.Fore  # type: ignore[assignment]
+    Style = _cm.Style  # type: ignore[assignment]
+    colorama_init = _cm.init  # type: ignore[assignment]
+except Exception:  # pragma: no cover
+
+    class _NoColor:
+        def __getattr__(self, _: str) -> str:
+            return ""
+
+    Fore = _NoColor()  # type: ignore[assignment]
+    Style = _NoColor()  # type: ignore[assignment]
+
+    # Keep signature simple to satisfy linters formatting
+    def colorama_init(*_: object, **__: object) -> None:
+        return None
+
 
 from find_stuff.__version__ import __version__
 from find_stuff.indexing import add_to_index, rebuild_index, search_files
@@ -40,6 +64,11 @@ from find_stuff.navigation import (
 @click.version_option(__version__, prog_name="find_stuff")
 def cli(debug: bool, trace: bool, log_file: Optional[str] = None) -> None:
     """Configure logging and load environment variables."""
+    # Ensure Colorama is initialized so ANSI colors render on Windows
+    try:
+        colorama_init(autoreset=True)
+    except Exception:
+        pass
     if trace:
         level = 1
     elif debug:
@@ -494,11 +523,70 @@ def _colors_supported() -> bool:
 
 
 def _c(text: str, fg: Optional[str] = None, bold: bool = False) -> str:
-    """Colorize text if supported; otherwise return as-is."""
+    """Colorize text using Colorama if supported; otherwise return as-is."""
 
     if not _colors_supported() or (fg is None and not bold):
         return text
-    return click.style(text, fg=fg, bold=bold)
+
+    color_map = {
+        "black": Fore.BLACK,
+        "red": Fore.RED,
+        "green": Fore.GREEN,
+        "yellow": Fore.YELLOW,
+        "blue": Fore.BLUE,
+        "magenta": Fore.MAGENTA,
+        "cyan": Fore.CYAN,
+        "white": Fore.WHITE,
+        # bright variants (if used)
+        "bright_black": Fore.LIGHTBLACK_EX,
+        "bright_red": Fore.LIGHTRED_EX,
+        "bright_green": Fore.LIGHTGREEN_EX,
+        "bright_yellow": Fore.LIGHTYELLOW_EX,
+        "bright_blue": Fore.LIGHTBLUE_EX,
+        "bright_magenta": Fore.LIGHTMAGENTA_EX,
+        "bright_cyan": Fore.LIGHTCYAN_EX,
+        "bright_white": Fore.LIGHTWHITE_EX,
+    }
+
+    parts: list[str] = []
+    if bold:
+        parts.append(Style.BRIGHT)
+    if fg is not None:
+        parts.append(color_map.get(fg.lower(), ""))
+    parts.append(text)
+    parts.append(Style.RESET_ALL)
+    return "".join(parts)
+
+
+def _prompt_style() -> InquirerPyStyle:
+    """Return InquirerPy style for prompts.
+
+    Avoids embedding ANSI codes directly in prompt strings.
+    """
+
+    # prompt_toolkit style strings; use ANSI color names for portability
+    style_dict = {
+        # Pointer on the highlighted line
+        "pointer": "ansicyan bold",
+        # Marker (mainly for multiselect; keep visible)
+        "marker": "ansimagenta bold",
+        # Matched characters in fuzzy filter
+        "fuzzy_match": "ansiyellow bold",
+        # The small prompt before input in fuzzy prompt
+        "fuzzy_prompt": "ansicyan bold",
+        # Info segment (e.g., counts)
+        "fuzzy_info": "ansiwhite",
+        # Instruction/help text
+        "instruction": "ansiwhite",
+        # Question/message styling (applies in some prompts)
+        "question": "ansicyan bold",
+        "questionmark": "ansicyan bold",
+        # Highlighted choice (used by some list prompts)
+        "highlighted": "ansicyan bold",
+    }
+
+    # Merge with InquirerPy defaults to preserve unspecified styles
+    return get_style(style_dict, style_override=False)
 
 
 @cli.command(name="browse")
@@ -545,11 +633,12 @@ def cli_browse(db_path: Path, color: bool) -> None:
                 ]
                 repo_choices.append({"name": "Quit", "value": ("quit", None)})
                 sel_kind, sel_payload = FuzzyPrompt(
-                    message=_c("Select repository", fg="cyan", bold=True),
+                    message="Select repository",
                     choices=repo_choices,
                     instruction=(
                         "Type to filter, Up/Down to navigate, Enter to select"
                     ),
+                    style=_prompt_style(),
                 ).execute()
                 if sel_kind == "quit":
                     return
@@ -570,12 +659,12 @@ def cli_browse(db_path: Path, color: bool) -> None:
             if rel_dir:
                 choices.append(
                     {
-                        "name": _c(".. (parent)", fg="yellow", bold=True),
+                        "name": ".. (parent)",
                         "value": ("parent", None),
                     }
                 )
             for d in dirs:
-                prefix = _c("[D]", fg="cyan", bold=True)
+                prefix = "[D]"
                 choices.append(
                     {
                         "name": f"{prefix} {d.name}",
@@ -583,7 +672,7 @@ def cli_browse(db_path: Path, color: bool) -> None:
                     }
                 )
             for f in files:
-                prefix_f = _c("[F]", fg="magenta", bold=True)
+                prefix_f = "[F]"
                 choices.append(
                     {
                         "name": f"{prefix_f} {f.name}",
@@ -605,15 +694,12 @@ def cli_browse(db_path: Path, color: bool) -> None:
             )
 
             kind2, payload2 = FuzzyPrompt(
-                message=_c(
-                    f"{current_repo.name} / {rel_dir or '.'}",
-                    fg="cyan",
-                    bold=True,
-                ),
+                message=f"{current_repo.name} / {rel_dir or '.'}",
                 choices=choices,
                 instruction=(
                     "Type to filter, Up/Down to navigate, Enter to select"
                 ),
+                style=_prompt_style(),
             ).execute()
 
             if kind2 == "quit":
@@ -681,12 +767,13 @@ def cli_browse(db_path: Path, color: bool) -> None:
                 click.echo("")
 
                 action = SelectPrompt(
-                    message=_c("Action", fg="cyan", bold=True),
+                    message="Action",
                     choices=[
                         {"name": "Open in VS Code", "value": "open"},
                         {"name": "Back", "value": "back"},
                     ],
                     default="back",
+                    style=_prompt_style(),
                 ).execute()
                 if action == "open":
                     ok, msg = open_in_code(fentry.path)

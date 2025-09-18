@@ -17,13 +17,109 @@ typed, and everything runs locally.
 
 ## Install
 
-Use your environment’s Python (3.11+):
+The steps below are written for beginners. They show how to:
+
+1) Install Python
+2) Create a private “virtual environment”
+3) Get the project from GitHub
+4) Install it into your environment and run it
+
+You only need to do this once on your computer. After that, you can just
+activate the environment and use the tool.
+
+### 1) Install Python (version 3.11 or newer)
+
+- Windows:
+  - Go to the official Python website: `https://www.python.org/downloads/`
+  - Download “Python 3.x” for Windows and run the installer.
+  - Important: On the first screen, check the box “Add Python to PATH”,
+    then click Install.
+  - After install, open PowerShell and type:
+
+    ```powershell
+    python --version
+    ```
+
+    You should see something like `Python 3.11.8` (any 3.11+ is fine).
+
+- macOS:
+  - Visit `https://www.python.org/downloads/` and install the latest 3.x for macOS.
+  - Open Terminal and type `python3 --version` to confirm.
+
+- Linux (Ubuntu/Debian):
+  - Open Terminal and run:
+
+  ```bash
+  sudo apt update && sudo apt install -y python3 python3-venv python3-pip
+  ```
+
+  - Confirm with: `python3 --version`
+
+### 2) Create a virtual environment (keeps things clean)
+
+Pick a folder where you want to keep this project (for example,
+`D:\tools\find-stuff` on Windows or `~/tools/find-stuff` on macOS/Linux). Then:
+
+- Windows PowerShell:
+
+  ```powershell
+  python -m venv .venv
+  . .venv\Scripts\Activate.ps1
+  ```
+
+- macOS/Linux Terminal:
+
+  ```bash
+  python3 -m venv .venv
+  source .venv/bin/activate
+  ```
+
+If activation worked, your prompt will show `(.venv)` at the start. While this
+is active, anything you install stays private to this folder.
+
+### 3) Get the project from GitHub
+
+If you have Git installed, you can clone the repository. If not, you can click
+the green “Code” button on GitHub and download the ZIP, then unzip it into your
+chosen folder.
+
+Using Git (recommended):
 
 ```bash
-pip install -e .
+git clone https://github.com/pyl1b/find-stuff.git
+cd find-stuff
 ```
 
-This also installs the `find-stuff` CLI.
+### 4) Install the tool into your environment
+
+With the virtual environment still active and inside the `find-stuff` folder,
+run:
+
+- Windows PowerShell:
+
+  ```powershell
+  python -m pip install --upgrade pip
+  python -m pip install -e .
+  ```
+
+- macOS/Linux:
+
+  ```bash
+  python3 -m pip install --upgrade pip
+  python3 -m pip install -e .
+  ```
+
+This installs the library and the `find-stuff` command.
+
+### 5) Try it out
+
+Show the help to confirm it’s installed:
+
+```bash
+find-stuff --help
+```
+
+Later, when you come back to use the tool again, just re-activate the environment (step 2) and you’re ready.
 
 ## TL;DR
 
