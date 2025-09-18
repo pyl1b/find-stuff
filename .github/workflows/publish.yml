@@ -28,6 +28,7 @@ jobs:
           python -m pip install pipx
           pipx install build
           pipx install twine
+          pipx install setuptools_scm
 
       # Optional: ensure your package version matches the release tag (e.g. v1.2.3)
       - name: Assert tag == project version
