@@ -10,6 +10,7 @@ Versioning.
 ### Added
 
 - In interactive `browse` CLI allow adding or refreshing a repository.
+- Use Dependabot
 
 ## 0.1.4
 
