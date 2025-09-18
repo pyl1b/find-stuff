@@ -402,9 +402,13 @@ python -m build
 twine check dist/*
 ```
 
-Then create a new tag and push it to GitHub:
+Change `## [Unreleased]` to the name of the new version in `CHANGELOG.md`,
+then create a commit, then create a new tag and push it to GitHub:
 
 ```bash
+git add .
+git commit -m "Release version 0.1.0"
+
 git tag -a v0.1.0 -m "Release version 0.1.0"
 
 git push origin v0.1.0

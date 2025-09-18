@@ -35,12 +35,20 @@ jobs:
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           TAG="${TAG#v}"  # allow vX.Y.Z tags
+
+          # Ask setuptools_scm for the version (uses your pyproject config)
           PKG_VERSION=$(python - <<'PY'
-          import tomllib,sys;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])
+          from setuptools_scm import get_version
+          print(get_version())
           PY
           )
-          echo "Tag: $TAG  / Project version: $PKG_VERSION"
-          [ "$TAG" = "$PKG_VERSION" ] || { echo "Version mismatch"; exit 1; }
+
+          # Drop any local version (+gSHA etc.) so 1.2.3+gabc matches tag 1.2.3
+          PKG_VERSION_BASE="${PKG_VERSION%%+*}"
+
+          echo "Tag: $TAG"
+          echo "Computed version (setuptools_scm): $PKG_VERSION"
+          [ "$TAG" = "$PKG_VERSION_BASE" ] || { echo "Version mismatch"; exit 1; }
 
       - name: Build sdist and wheel
         run: pipx run build
