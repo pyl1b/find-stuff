@@ -333,3 +333,36 @@ def test__matching_token_ids_exact_and_regex(tmp_path: Path) -> None:
         assert set(ids_cs_regex).issubset(set(ids_ci))
     finally:
         conn.close()
+
+
+@pytest.mark.skipif(
+    not _git_available(), reason="git is required for this test"
+)
+def test_metadata_recorded_for_files(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_git_repo(
+        repo,
+        files=[
+            ("a.py", "alpha = 1\n"),
+        ],
+    )
+
+    db_path = tmp_path / "index.sqlite3"
+    indexing.rebuild_index(tmp_path, db_path, file_types=("py",))
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT size_bytes, mtime_ns, ctime_ns, sha256_hex FROM files"
+        )
+        row = cur.fetchone()
+        assert row is not None
+        size_b, mt_ns, ct_ns, digest = row
+        assert int(size_b) >= 0
+        assert int(mt_ns) > 0
+        assert int(ct_ns) > 0
+        assert isinstance(digest, str)
+        assert len(digest) in (0, 64)
+    finally:
+        conn.close()

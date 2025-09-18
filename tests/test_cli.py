@@ -134,3 +134,42 @@ def test_cli_add_to_index_appends(tmp_path: Path) -> None:
     res_search_beta = runner.invoke(cli, ["search", "--db", str(db), "beta"])
     assert "a.py" in res_search_alpha.output
     assert "b.py" in res_search_beta.output
+
+
+@pytest.mark.skipif(
+    not _git_available(), reason="git is required for this test"
+)
+def test_cli_file_info_reports_status(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_git_repo(
+        repo,
+        files=[
+            ("a.py", "alpha = 1\n"),
+        ],
+    )
+
+    db = tmp_path / ".find_stuff" / "index.sqlite3"
+    runner = CliRunner()
+
+    res_rebuild = runner.invoke(
+        cli, ["rebuild-index", str(tmp_path), "--db", str(db), "--ext", "py"]
+    )
+    assert res_rebuild.exit_code == 0, res_rebuild.output
+
+    fpath = repo / "a.py"
+
+    # Unchanged
+    res_info_unchanged = runner.invoke(
+        cli, ["file-info", "--db", str(db), str(fpath)]
+    )
+    assert res_info_unchanged.exit_code == 0
+    assert "Status: unchanged" in res_info_unchanged.output
+
+    # Modify file content to change hash and mtime
+    fpath.write_text("alpha = 2\n", encoding="utf-8")
+
+    res_info_changed = runner.invoke(
+        cli, ["file-info", "--db", str(db), str(fpath)]
+    )
+    assert res_info_changed.exit_code == 0
+    assert "Status: modified" in res_info_changed.output

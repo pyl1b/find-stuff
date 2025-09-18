@@ -3,7 +3,7 @@
 ## Goals
 
 - Generate fully-typed, tested Python code for this repo.
-- Maintain compatibility with Python 3.12.
+- Maintain compatibility with Python 3.11.
 - The main way this code is used is through the console. It can also be used
   as a library.
 
@@ -37,7 +37,7 @@
 - Any type has composed types (lists, dictionaries, tuples, etc) inside
   another complex type should be defined at the top of the module, after the
   imports.
-- In code body use noumerous comments to describe what the line or goup of
+- In code body use numerous comments to describe what the line or group of
   lines does. Place these comments above the said line of code and add an empty
   line before the comment.
   

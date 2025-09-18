@@ -18,6 +18,7 @@ import re
 import sqlite3
 import subprocess
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
@@ -191,6 +192,40 @@ def _db_init(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _compute_file_metadata(fpath: Path) -> Tuple[int, int, int, str]:
+    """Compute size, mtime_ns, ctime_ns and sha256 for a file.
+
+    Args:
+        fpath: Absolute file path.
+
+    Returns:
+        Tuple ``(size_bytes, mtime_ns, ctime_ns, sha256_hex)``.
+    """
+
+    st = fpath.stat()
+    size_bytes = int(st.st_size)
+
+    # Prefer high-resolution nanosecond fields available on 3.11+
+    mtime_ns = int(
+        getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000))
+    )
+    ctime_ns = int(
+        getattr(st, "st_ctime_ns", int(st.st_ctime * 1_000_000_000))
+    )
+
+    h = sha256()
+
+    # Read in chunks to handle large files efficiently
+    with fpath.open("rb") as rf:
+        while True:
+            chunk = rf.read(1024 * 1024)
+            if not chunk:
+                break
+            h.update(chunk)
+
+    return size_bytes, mtime_ns, ctime_ns, h.hexdigest()
+
+
 def rebuild_index(
     root: Path,
     db_path: Path,
@@ -223,8 +258,23 @@ def rebuild_index(
             )
             for fpath in selected_files:
                 relpath = os.path.relpath(fpath, repo_root)
+
+                # Compute and store file metadata
+                try:
+                    size_b, mt_ns, ct_ns, digest = _compute_file_metadata(
+                        fpath
+                    )
+                except Exception:
+                    size_b, mt_ns, ct_ns, digest = 0, 0, 0, ""
+
                 db_file = SAFile(
-                    repo_id=repo.id, relpath=relpath, abspath=str(fpath)
+                    repo_id=repo.id,
+                    relpath=relpath,
+                    abspath=str(fpath),
+                    size_bytes=size_b,
+                    mtime_ns=mt_ns,
+                    ctime_ns=ct_ns,
+                    sha256_hex=digest,
                 )
                 session.add(db_file)
                 session.flush()  # populate db_file.id
@@ -333,8 +383,23 @@ def add_to_index(
             )
             for fpath in selected_files:
                 relpath = os.path.relpath(fpath, repo_root)
+
+                # Compute and store file metadata
+                try:
+                    size_b, mt_ns, ct_ns, digest = _compute_file_metadata(
+                        fpath
+                    )
+                except Exception:
+                    size_b, mt_ns, ct_ns, digest = 0, 0, 0, ""
+
                 db_file = SAFile(
-                    repo_id=repo.id, relpath=relpath, abspath=str(fpath)
+                    repo_id=repo.id,
+                    relpath=relpath,
+                    abspath=str(fpath),
+                    size_bytes=size_b,
+                    mtime_ns=mt_ns,
+                    ctime_ns=ct_ns,
+                    sha256_hex=digest,
                 )
                 session.add(db_file)
                 session.flush()  # populate db_file.id

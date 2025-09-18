@@ -64,6 +64,10 @@ class File(Base):
         repo_id: Foreign key to ``repositories.id``.
         relpath: File path relative to the repository root.
         abspath: Absolute filesystem path to the file.
+        size_bytes: File size in bytes at index time.
+        mtime_ns: Last modification time in nanoseconds at index time.
+        ctime_ns: Last metadata change time in nanoseconds at index time.
+        sha256_hex: SHA-256 hash of the file contents at index time (hex).
         repo: Relationship back to the owning repository.
     """
 
@@ -73,6 +77,12 @@ class File(Base):
     )
     relpath: Mapped[str] = mapped_column(String, nullable=False)
     abspath: Mapped[str] = mapped_column(String, nullable=False)
+
+    # Metadata captured at index time
+    size_bytes: Mapped[int] = mapped_column(nullable=True)
+    mtime_ns: Mapped[int] = mapped_column(nullable=True)
+    ctime_ns: Mapped[int] = mapped_column(nullable=True)
+    sha256_hex: Mapped[str] = mapped_column(String, nullable=True)
 
     repo: Mapped[Repository] = relationship(  # type: ignore
         back_populates="files"

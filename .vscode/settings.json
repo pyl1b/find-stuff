@@ -1,6 +1,22 @@
 {
     "cSpell.words": [
-
+        "autouse",
+        "beautifulsoup",
+        "docstrings",
+        "dotenv",
+        "ondelete",
+        "openpyxl",
+        "pargs",
+        "pathlib",
+        "pkwargs",
+        "pycodestyle",
+        "pyflakes",
+        "pyproject",
+        "pysqlite",
+        "pyyaml",
+        "setuptools",
+        "stdlib",
+        "subcmd"
     ],
     "python.formatting.provider": "none",
     "editor.defaultFormatter": "charliermarsh.ruff",

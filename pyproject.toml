@@ -9,7 +9,7 @@ classifiers = [
   "License :: Other/Proprietary License",
   "Typing :: Typed",
 ]
-description = "Find stuff in files"
+description = "Lightweight code search for your own projects."
 dynamic = ["version"]
 name = "find_stuff"
 readme = "README.md"

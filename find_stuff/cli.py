@@ -4,9 +4,13 @@ from typing import Optional, Tuple
 
 import click
 from dotenv import load_dotenv  # type: ignore[import-not-found]
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from find_stuff.__version__ import __version__
 from find_stuff.indexing import add_to_index, rebuild_index, search_files
+from find_stuff.models import File as SAFile
+from find_stuff.models import create_engine_for_path
 
 
 @click.group()
@@ -215,3 +219,106 @@ def cli_search(
 
     for path, score in results:
         click.echo(f"{score}\t{path}")
+
+
+@cli.command(name="file-info")
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(
+        file_okay=True, dir_okay=False, readable=True, path_type=Path
+    ),
+    default=Path(".find_stuff/index.sqlite3"),
+    show_default=True,
+    help="Path to the SQLite index database.",
+)
+@click.argument("file_path", type=click.Path(exists=True, path_type=Path))
+def cli_file_info(db_path: Path, file_path: Path) -> None:
+    """Show stored metadata for FILE_PATH and verify if it changed.
+
+    The command looks up the file by absolute path in the index, prints the
+    stored metadata (size, mtime_ns, ctime_ns, sha256_hex) and compares with
+    the current filesystem values. If the time fields indicate change but the
+    hash matches, or vice-versa, both aspects are reported for clarity.
+    """
+
+    engine = create_engine_for_path(db_path)
+    with Session(engine) as session:
+        row = session.execute(
+            select(
+                SAFile.relpath,
+                SAFile.abspath,
+                SAFile.size_bytes,
+                SAFile.mtime_ns,
+                SAFile.ctime_ns,
+                SAFile.sha256_hex,
+            ).where(SAFile.abspath == str(file_path.resolve()))
+        ).first()
+
+        if row is None:
+            click.echo("Not found in index.")
+            return
+
+        relpath, abspath, size_b, mt_ns, ct_ns, digest = row
+
+        click.echo("Stored:")
+        click.echo(f"  path: {abspath}")
+        click.echo(f"  relpath: {relpath}")
+        click.echo(f"  size_bytes: {size_b}")
+        click.echo(f"  mtime_ns: {mt_ns}")
+        click.echo(f"  ctime_ns: {ct_ns}")
+        click.echo(f"  sha256_hex: {digest}")
+
+        # Compute current values
+        try:
+            st = file_path.stat()
+            cur_size = int(st.st_size)
+            cur_mtime_ns = int(
+                getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000))
+            )
+            cur_ctime_ns = int(
+                getattr(st, "st_ctime_ns", int(st.st_ctime * 1_000_000_000))
+            )
+            # Hash only if size or times differ; may still hash to be sure
+            import hashlib
+
+            h = hashlib.sha256()
+            with file_path.open("rb") as rf:
+                for chunk in iter(lambda: rf.read(1024 * 1024), b""):
+                    h.update(chunk)
+            cur_digest = h.hexdigest()
+        except Exception as exc:  # pragma: no cover
+            click.echo(f"Error reading current file state: {exc}")
+            return
+
+        click.echo("Current:")
+        click.echo(f"  size_bytes: {cur_size}")
+        click.echo(f"  mtime_ns: {cur_mtime_ns}")
+        click.echo(f"  ctime_ns: {cur_ctime_ns}")
+        click.echo(f"  sha256_hex: {cur_digest}")
+
+        # Determine change status
+        time_changed = (mt_ns != cur_mtime_ns) or (ct_ns != cur_ctime_ns)
+        hash_changed = (digest or "") != cur_digest
+
+        if not time_changed and not hash_changed:
+            click.echo("Status: unchanged")
+            return
+
+        if time_changed and hash_changed:
+            click.echo("Status: modified (time and hash differ)")
+            return
+
+        if time_changed and not hash_changed:
+            click.echo(
+                "Status: time changed but content hash is identical "
+                "(likely touch)"
+            )
+            return
+
+        if hash_changed and not time_changed:
+            click.echo(
+                "Status: content hash changed but times are same "
+                "(clock or copy?)"
+            )
+            return
