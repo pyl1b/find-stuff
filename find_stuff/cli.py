@@ -38,7 +38,6 @@ from find_stuff.indexing import add_to_index, rebuild_index, search_files
 from find_stuff.models import File as SAFile
 from find_stuff.models import create_engine_for_path
 from find_stuff.navigation import (
-    DirEntry,
     FileEntry,
     RepoEntry,
     file_status,
@@ -403,44 +402,6 @@ def _clear_screen() -> None:
         pass
 
 
-def _read_key() -> Optional[str]:
-    """Read a single key from the keyboard.
-
-    Returns simple strings: 'UP', 'DOWN', 'ENTER', 'BACKSPACE', single chars,
-    or None if not supported.
-    """
-
-    try:
-        import msvcrt  # type: ignore
-
-        ch = msvcrt.getwch()
-        if ch in ("\r", "\n"):
-            return "ENTER"
-        if ch == "\x08":
-            return "BACKSPACE"
-        if ch in ("\x00", "\xe0"):
-            ch2 = msvcrt.getwch()
-            if ch2 == "H":
-                return "UP"
-            if ch2 == "P":
-                return "DOWN"
-            return None
-        return ch
-    except Exception:
-        return None
-
-
-def _prompt(text: str) -> str:
-    """Prompt for input robustly."""
-
-    try:
-        return input(text)
-    except EOFError:
-        return ""
-    except KeyboardInterrupt:
-        return ""
-
-
 def _print_header(title: str, subtitle: Optional[str] = None) -> None:
     """Print a section header."""
 
@@ -448,34 +409,6 @@ def _print_header(title: str, subtitle: Optional[str] = None) -> None:
     if subtitle:
         click.echo(subtitle)
     click.echo("")
-
-
-def _render_list(title: str, items: Tuple[str, ...], selected: int) -> None:
-    """Render simple list UI."""
-
-    _clear_screen()
-    _print_header(title)
-    for idx, line in enumerate(items, start=1):
-        prefix = "> " if (idx - 1) == selected else "  "
-        click.echo(f"{prefix}{line}")
-    click.echo("")
-    click.echo(
-        "Arrows: navigate  Enter: select  b: back  i: input  c: open in Code"
-    )
-    click.echo("q: quit")
-
-
-def _fmt_repo_line(entry: RepoEntry) -> str:
-    return f"{entry.index}. {entry.name}\t{entry.root}"
-
-
-def _fmt_dir_line(base: Path, entry: DirEntry) -> str:
-    full = base / entry.name
-    return f"{entry.index}. {entry.name}\t{full}"
-
-
-def _fmt_file_line(entry: FileEntry) -> str:
-    return f"{entry.index}. {entry.name}\t{entry.path}"
 
 
 def _format_ns_as_local(ns: Optional[int]) -> str:
