@@ -1,10 +1,11 @@
 import logging
 from pathlib import Path
-from typing import Optional
-from find_stuff.__version__ import __version__
+from typing import Optional, Tuple
+
 import click
 from dotenv import load_dotenv  # type: ignore[import-not-found]
-from typing import Tuple
+
+from find_stuff.__version__ import __version__
 from find_stuff.indexing import rebuild_index, search_files
 
 

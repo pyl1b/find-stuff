@@ -19,8 +19,25 @@ import sqlite3
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Sequence, Tuple, Optional
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
+from sqlalchemy import func, select  # type: ignore[import-not-found]
+from sqlalchemy.orm import Session  # type: ignore[import-not-found]
+
+from find_stuff.models import (
+    File as SAFile,
+)
+from find_stuff.models import (
+    Posting as SAPosting,
+)
+from find_stuff.models import (
+    Repository,
+    create_engine_for_path,
+    init_db,
+)
+from find_stuff.models import (
+    Token as SAToken,
+)
 
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -148,59 +165,16 @@ def _iter_token_postings(file_path: Path) -> Iterator[Posting]:
 
 
 def _db_init(conn: sqlite3.Connection) -> None:
-    """Create database schema (drop existing tables)."""
+    """Create database schema (drop existing tables).
 
+    Note: Kept for backwards compatibility in tests/imports.
+    Actual schema creation is handled via SQLAlchemy in rebuild_index.
+    """
     cur = conn.cursor()
     cur.executescript(
         """
         PRAGMA journal_mode=WAL;
         PRAGMA synchronous=NORMAL;
-
-        DROP TABLE IF EXISTS postings;
-        DROP TABLE IF EXISTS tokens;
-        DROP TABLE IF EXISTS files;
-        DROP TABLE IF EXISTS repositories;
-        DROP TABLE IF EXISTS metadata;
-
-        CREATE TABLE repositories (
-            id INTEGER PRIMARY KEY,
-            root TEXT NOT NULL UNIQUE
-        );
-
-        CREATE TABLE files (
-            id INTEGER PRIMARY KEY,
-            repo_id INTEGER NOT NULL REFERENCES repositories(id)
-                ON DELETE CASCADE,
-            relpath TEXT NOT NULL,
-            abspath TEXT NOT NULL,
-            UNIQUE(repo_id, relpath)
-        );
-
-        CREATE TABLE tokens (
-            id INTEGER PRIMARY KEY,
-            token TEXT NOT NULL UNIQUE,
-            token_lc TEXT NOT NULL
-        );
-
-        CREATE TABLE postings (
-            file_id INTEGER NOT NULL REFERENCES files(id)
-                ON DELETE CASCADE,
-            token_id INTEGER NOT NULL REFERENCES tokens(id)
-                ON DELETE CASCADE,
-            line INTEGER NOT NULL,
-            col INTEGER NOT NULL,
-            PRIMARY KEY (file_id, token_id, line, col)
-        );
-
-        CREATE INDEX idx_tokens_token ON tokens(token);
-        CREATE INDEX idx_tokens_token_lc ON tokens(token_lc);
-        CREATE INDEX idx_postings_token ON postings(token_id);
-        CREATE INDEX idx_postings_file ON postings(file_id);
-
-        CREATE TABLE metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
         """
     )
     conn.commit()
@@ -223,92 +197,80 @@ def rebuild_index(
     """
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
-    try:
-        _db_init(conn)
-        cur = conn.cursor()
+    engine = create_engine_for_path(db_path)
+    init_db(engine)
 
-        repos = find_git_repos(root)
+    repos = find_git_repos(root)
+    with Session(engine) as session:
         for repo_root in repos:
-            # Insert repository
-            cur.execute(
-                "INSERT INTO repositories(root) VALUES (?)",
-                (str(repo_root),),
-            )
-            repo_id = cur.lastrowid
+            repo = Repository(root=str(repo_root))
+            session.add(repo)
+            session.flush()  # populate repo.id
 
-            # Enumerate files and index tokens
             selected_files = list_git_tracked_files(
                 repo_root, file_types or ("py",)
             )
             for fpath in selected_files:
                 relpath = os.path.relpath(fpath, repo_root)
-                cur.execute(
-                    (
-                        "INSERT INTO files(repo_id, relpath, abspath) "
-                        "VALUES (?, ?, ?)"
-                    ),
-                    (repo_id, relpath, str(fpath)),
+                db_file = SAFile(
+                    repo_id=repo.id, relpath=relpath, abspath=str(fpath)
                 )
-                file_id = cur.lastrowid
+                session.add(db_file)
+                session.flush()  # populate db_file.id
 
                 # Collect tokens for the file
-                token_counts: Dict[str, int] = {}
-                postings: List[Tuple[int, int, int]] = []
-
-                # Stage tokens (string) to later map to ids
                 tokens_in_file: List[Tuple[str, int, int]] = []
                 for post in _iter_token_postings(fpath):
-                    tokens_in_file.append(
-                        (post.token, post.line, post.column)
-                    )
-                    token_counts[post.token] = (
-                        token_counts.get(post.token, 0) + 1
-                    )
+                    tokens_in_file.append((post.token, post.line, post.column))
 
                 if not tokens_in_file:
                     continue
 
-                # Ensure tokens exist in tokens table
                 unique_tokens = sorted({t for t, _l, _c in tokens_in_file})
-                cur.executemany(
-                    "INSERT OR IGNORE INTO tokens(token, token_lc) "
-                    "VALUES(?, ?)",
-                    [(tok, tok.lower()) for tok in unique_tokens],
-                )
 
-                # Build mapping token -> id
-                cur.execute(
-                    (
-                        "SELECT id, token FROM tokens WHERE token IN ("
-                        + ",".join(["?"] * len(unique_tokens))
-                        + ")"
-                    ),
-                    unique_tokens,
-                )
-                token_to_id = {
-                    row[1]: int(row[0]) for row in cur.fetchall()
-                }
+                # Fetch existing tokens
+                existing_rows = session.execute(
+                    select(SAToken.id, SAToken.token).where(
+                        SAToken.token.in_(unique_tokens)
+                    )
+                ).all()
+                existing_map = {tok: tid for tid, tok in existing_rows}
+                missing_tokens = [
+                    t for t in unique_tokens if t not in existing_map
+                ]
 
-                # Prepare postings rows
-                for tok, line, col in tokens_in_file:
-                    tok_id = token_to_id[tok]
-                    postings.append((tok_id, line, col))
+                # Insert missing tokens
+                if missing_tokens:
+                    session.bulk_save_objects(
+                        [
+                            SAToken(token=t, token_lc=t.lower())
+                            for t in missing_tokens
+                        ]
+                    )
+                    session.flush()
 
-                cur.executemany(
-                    (
-                        "INSERT OR IGNORE INTO postings("
-                        "file_id, token_id, line, col) VALUES (?, ?, ?, ?)"
-                    ),
+                # Build mapping token -> id after inserts
+                all_rows = session.execute(
+                    select(SAToken.id, SAToken.token).where(
+                        SAToken.token.in_(unique_tokens)
+                    )
+                ).all()
+                token_to_id = {tok: int(tid) for tid, tok in all_rows}
+
+                # Create postings
+                session.bulk_save_objects(
                     [
-                        (file_id, tok_id, line, col)
-                        for (tok_id, line, col) in postings
-                    ],
+                        SAPosting(
+                            file_id=db_file.id,
+                            token_id=token_to_id[tok],
+                            line=line,
+                            col=col,
+                        )
+                        for (tok, line, col) in tokens_in_file
+                    ]
                 )
 
-            conn.commit()
-    finally:
-        conn.close()
+        session.commit()
 
 
 def _matching_token_ids(
@@ -386,58 +348,66 @@ def search_files(
     if not terms:
         return []
 
-    conn = sqlite3.connect(str(db_path))
-    try:
-        cur = conn.cursor()
-
+    engine = create_engine_for_path(db_path)
+    with Session(engine) as session:
         # Resolve matching token ids for each term
-        term_token_ids: List[List[int]] = [
-            _matching_token_ids(
-                conn,
-                term,
-                regex=regex,
-                case_sensitive=case_sensitive,
-            )
-            for term in terms
-        ]
+        term_token_ids: List[List[int]] = []
+        for term in terms:
+            if not regex:
+                if case_sensitive:
+                    ids = session.scalars(
+                        select(SAToken.id).where(SAToken.token == term)
+                    ).all()
+                else:
+                    ids = session.scalars(
+                        select(SAToken.id).where(
+                            SAToken.token_lc == term.lower()
+                        )
+                    ).all()
+            else:
+                # Regex: fetch tokens and filter in Python
+                rows = session.execute(
+                    select(SAToken.id, SAToken.token, SAToken.token_lc)
+                ).all()
+                flags = 0 if case_sensitive else re.IGNORECASE
+                pattern = re.compile(term, flags)
+                ids = [
+                    int(tok_id)
+                    for tok_id, tok, tok_lc in rows
+                    if pattern.search(tok if case_sensitive else tok_lc)
+                    is not None
+                ]
+            term_token_ids.append([int(i) for i in ids])
 
-        # Early exit if any term has no matches when all are required
         if require_all_terms and any(len(ids) == 0 for ids in term_token_ids):
             return []
 
-        # Build candidate files and counts
         file_to_count: Dict[int, int] = {}
 
         if require_all_terms:
-            # Start with files for the first term
             first_ids = term_token_ids[0]
             if not first_ids:
                 return []
 
-            cur.execute(
-                (
-                    "SELECT DISTINCT file_id FROM postings WHERE token_id IN ("
-                    + ",".join(["?"] * len(first_ids))
-                    + ")"
-                ),
-                first_ids,
+            first_files = set(
+                session.scalars(
+                    select(SAPosting.file_id)
+                    .where(SAPosting.token_id.in_(first_ids))
+                    .distinct()
+                ).all()
             )
-            candidate_files = {int(r[0]) for r in cur.fetchall()}
+            candidate_files = first_files
 
-            # Intersect with files for remaining terms
             for ids in term_token_ids[1:]:
                 if not ids:
                     return []
-                cur.execute(
-                    (
-                        "SELECT DISTINCT file_id FROM postings WHERE "
-                        "token_id IN ("
-                        + ",".join(["?"] * len(ids))
-                        + ")"
-                    ),
-                    ids,
+                these_files = set(
+                    session.scalars(
+                        select(SAPosting.file_id)
+                        .where(SAPosting.token_id.in_(ids))
+                        .distinct()
+                    ).all()
                 )
-                these_files = {int(r[0]) for r in cur.fetchall()}
                 candidate_files &= these_files
                 if not candidate_files:
                     return []
@@ -445,42 +415,32 @@ def search_files(
             if not candidate_files:
                 return []
 
-            # Count postings for all matching tokens within candidate files
             all_ids = sorted({tid for ids in term_token_ids for tid in ids})
-            cur.execute(
-                (
-                    "SELECT file_id, COUNT(*) FROM postings WHERE "
-                    "file_id IN ("
-                    + ",".join(["?"] * len(candidate_files))
-                    + ") AND token_id IN ("
-                    + ",".join(["?"] * len(all_ids))
-                    + ") GROUP BY file_id"
-                ),
-                [*candidate_files, *all_ids],
-            )
-            for file_id, count in cur.fetchall():
+            rows = session.execute(
+                select(SAPosting.file_id, func.count())
+                .where(
+                    SAPosting.file_id.in_(list(candidate_files)),
+                    SAPosting.token_id.in_(all_ids),
+                )
+                .group_by(SAPosting.file_id)
+            ).all()
+            for file_id, count in rows:
                 file_to_count[int(file_id)] = int(count)
         else:
-            # Any term: union of files across all terms
             all_ids = sorted({tid for ids in term_token_ids for tid in ids})
             if not all_ids:
                 return []
-            cur.execute(
-                (
-                    "SELECT file_id, COUNT(*) FROM postings WHERE "
-                    "token_id IN ("
-                    + ",".join(["?"] * len(all_ids))
-                    + ") GROUP BY file_id"
-                ),
-                all_ids,
-            )
-            for file_id, count in cur.fetchall():
+            rows = session.execute(
+                select(SAPosting.file_id, func.count())
+                .where(SAPosting.token_id.in_(all_ids))
+                .group_by(SAPosting.file_id)
+            ).all()
+            for file_id, count in rows:
                 file_to_count[int(file_id)] = int(count)
 
         if not file_to_count:
             return []
 
-        # Optionally filter by file extension before sorting/limiting
         if file_types:
             normalized_exts = {
                 "." + ext.lstrip(".").lower()
@@ -488,18 +448,15 @@ def search_files(
                 if ext.strip()
             }
             if normalized_exts:
-                all_ids = list(file_to_count.keys())
-                cur.execute(
-                    (
-                        "SELECT id, abspath FROM files WHERE id IN ("
-                        + ",".join(["?"] * len(all_ids))
-                        + ")"
-                    ),
-                    all_ids,
-                )
+                all_ids_list = list(file_to_count.keys())
+                rows = session.execute(
+                    select(SAFile.id, SAFile.abspath).where(
+                        SAFile.id.in_(all_ids_list)
+                    )
+                ).all()
                 allowed_ids = {
                     int(i)
-                    for i, p in cur.fetchall()
+                    for i, p in rows
                     if Path(p).suffix.lower() in normalized_exts
                 }
                 if allowed_ids:
@@ -511,7 +468,6 @@ def search_files(
                 else:
                     return []
 
-        # Map file ids to absolute paths
         file_ids_sorted = [
             fid
             for fid, _ in sorted(
@@ -521,17 +477,12 @@ def search_files(
         if limit > 0:
             file_ids_sorted = file_ids_sorted[:limit]
 
-        cur.execute(
-            (
-                "SELECT id, abspath FROM files WHERE id IN ("
-                + ",".join(["?"] * len(file_ids_sorted))
-                + ")"
-            ),
-            file_ids_sorted,
-        )
-        id_to_path = {
-            int(i): Path(p) for i, p in cur.fetchall()
-        }
+        rows = session.execute(
+            select(SAFile.id, SAFile.abspath).where(
+                SAFile.id.in_(file_ids_sorted)
+            )
+        ).all()
+        id_to_path = {int(i): Path(p) for i, p in rows}
 
         results: List[Tuple[Path, int]] = [
             (id_to_path[fid], file_to_count[fid])
@@ -539,5 +490,3 @@ def search_files(
             if fid in id_to_path
         ]
         return results
-    finally:
-        conn.close()

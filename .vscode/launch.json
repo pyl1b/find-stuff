@@ -19,6 +19,25 @@
       "windows": {
         "python": "${workspaceFolder}\\venv\\Scripts\\python.exe"
       }
+    },
+    {
+      "name": "search",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "find_stuff.__main__",
+      "args": [
+        "search",
+        "--db",
+        "${workspaceFolder}/playground/index.sqlite3",
+        "--ext", "py",
+        "import", "os"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "windows": {
+        "python": "${workspaceFolder}\\venv\\Scripts\\python.exe"
+      }
     }
   ]
 }

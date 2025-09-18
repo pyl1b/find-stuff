@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
+
 from find_stuff.cli import cli
-from tests.test_indexing import _init_git_repo, _git_available
+from tests.test_indexing import _git_available, _init_git_repo
 
 
 @pytest.mark.skipif(
@@ -79,9 +82,7 @@ def test_cli_search_flags_behavior(tmp_path: Path) -> None:
     assert res_rebuild.exit_code == 0, res_rebuild.output
 
     # --all (default) requires both terms; should only match a.py
-    res_all = runner.invoke(
-        cli, ["search", "--db", str(db), "foo", "bar"]
-    )
+    res_all = runner.invoke(cli, ["search", "--db", str(db), "foo", "bar"])
     assert res_all.exit_code == 0
     out_all = res_all.output
     assert "a.py" in out_all and "b.py" not in out_all

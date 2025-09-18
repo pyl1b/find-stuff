@@ -70,12 +70,8 @@ def test_list_git_tracked_files_filters_extensions(tmp_path: Path) -> None:
         ],
     )
 
-    py_files = indexing.list_git_tracked_files(
-        repo, ["py"]
-    )  # type: ignore[list-item]
-    txt_files = indexing.list_git_tracked_files(
-        repo, [".txt"]
-    )  # type: ignore[list-item]
+    py_files = indexing.list_git_tracked_files(repo, ["py"])  # type: ignore[list-item]
+    txt_files = indexing.list_git_tracked_files(repo, [".txt"])  # type: ignore[list-item]
 
     py_names = sorted(
         [str(p.relative_to(repo)).replace("\\", "/") for p in py_files]
@@ -136,6 +132,7 @@ def test_rebuild_index_creates_db_and_tokens(tmp_path: Path) -> None:
         assert {"repositories", "files", "tokens", "postings"}.issubset(tables)
     finally:
         conn.close()
+
 
 # end
 
@@ -228,9 +225,7 @@ def test_search_files_file_types_filter(tmp_path: Path) -> None:
     indexing.rebuild_index(tmp_path, db_path, file_types=("py", "md"))
 
     # Searching for "token" across both should return both files when no filter
-    results = indexing.search_files(
-        db_path, ["token"], require_all_terms=True
-    )
+    results = indexing.search_files(db_path, ["token"], require_all_terms=True)
     paths = {Path(p).name for p, _ in results}
     assert {"a.py", "note.md"}.issubset(paths)
 
