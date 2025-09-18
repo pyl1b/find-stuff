@@ -42,7 +42,6 @@ dev = [
   "types-requests",
   "types-PyYAML",
   "types-openpyxl",
-  "sqlalchemy2-stubs>=0.0.2a38",
 ]
 
 
@@ -67,7 +66,7 @@ extend-exclude = ["venv", ".venv"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "ANN"]  # E=pycodestyle, F=pyflakes, I=imports
-ignore = ["ANN102"]
+ignore = ["ANN102", "ANN401"]
 
 [tool.ruff.format]
 quote-style = "double"

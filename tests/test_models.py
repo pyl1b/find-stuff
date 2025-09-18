@@ -13,7 +13,9 @@ def test_models_create_schema(tmp_path: Path) -> None:
     # Basic insert roundtrip and existence check
     with engine.begin() as conn:
         conn.execute(
-            Repository.__table__.insert().values(root=str(tmp_path / "repo"))
+            Repository.__table__.insert().values(  # type: ignore
+                root=str(tmp_path / "repo")
+            )
         )
 
     assert db.exists()

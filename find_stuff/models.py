@@ -18,7 +18,7 @@ from sqlalchemy import (
     create_engine,
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import (  # type: ignore[import-not-found]
+from sqlalchemy.orm import (  # type: ignore
     DeclarativeBase,
     Mapped,
     mapped_column,
@@ -46,7 +46,7 @@ class Repository(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     root: Mapped[str] = mapped_column(String, unique=True, nullable=False)
 
-    files: Mapped[List["File"]] = relationship(
+    files: Mapped[List["File"]] = relationship(  # type: ignore
         back_populates="repo", cascade="all, delete-orphan"
     )
 
@@ -74,7 +74,9 @@ class File(Base):
     relpath: Mapped[str] = mapped_column(String, nullable=False)
     abspath: Mapped[str] = mapped_column(String, nullable=False)
 
-    repo: Mapped[Repository] = relationship(back_populates="files")
+    repo: Mapped[Repository] = relationship(  # type: ignore
+        back_populates="files"
+    )
 
 
 class Token(Base):

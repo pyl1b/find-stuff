@@ -21,8 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
-from sqlalchemy import func, select  # type: ignore[import-not-found]
-from sqlalchemy.orm import Session  # type: ignore[import-not-found]
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from find_stuff.models import (
     File as SAFile,
@@ -532,7 +532,7 @@ def search_files(
                 return []
 
             all_ids = sorted({tid for ids in term_token_ids for tid in ids})
-            rows = session.execute(
+            rows_2 = session.execute(
                 select(SAPosting.file_id, func.count())
                 .where(
                     SAPosting.file_id.in_(list(candidate_files)),
@@ -540,18 +540,18 @@ def search_files(
                 )
                 .group_by(SAPosting.file_id)
             ).all()
-            for file_id, count in rows:
+            for file_id, count in rows_2:
                 file_to_count[int(file_id)] = int(count)
         else:
             all_ids = sorted({tid for ids in term_token_ids for tid in ids})
             if not all_ids:
                 return []
-            rows = session.execute(
+            rows_3 = session.execute(
                 select(SAPosting.file_id, func.count())
                 .where(SAPosting.token_id.in_(all_ids))
                 .group_by(SAPosting.file_id)
             ).all()
-            for file_id, count in rows:
+            for file_id, count in rows_3:
                 file_to_count[int(file_id)] = int(count)
 
         if not file_to_count:
@@ -565,14 +565,14 @@ def search_files(
             }
             if normalized_exts:
                 all_ids_list = list(file_to_count.keys())
-                rows = session.execute(
+                rows_4 = session.execute(
                     select(SAFile.id, SAFile.abspath).where(
                         SAFile.id.in_(all_ids_list)
                     )
                 ).all()
                 allowed_ids = {
                     int(i)
-                    for i, p in rows
+                    for i, p in rows_4
                     if Path(p).suffix.lower() in normalized_exts
                 }
                 if allowed_ids:
@@ -593,12 +593,12 @@ def search_files(
         if limit > 0:
             file_ids_sorted = file_ids_sorted[:limit]
 
-        rows = session.execute(
+        rows_5 = session.execute(
             select(SAFile.id, SAFile.abspath).where(
                 SAFile.id.in_(file_ids_sorted)
             )
         ).all()
-        id_to_path = {int(i): Path(p) for i, p in rows}
+        id_to_path = {int(i): Path(p) for i, p in rows_5}
 
         results: List[Tuple[Path, int]] = [
             (id_to_path[fid], file_to_count[fid])
