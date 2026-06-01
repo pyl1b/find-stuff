@@ -30,7 +30,7 @@
         "--db",
         "${workspaceFolder}/playground/index.sqlite3",
         "--ext", "py",
-        "import", "os"
+        "privitoare"
       ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",

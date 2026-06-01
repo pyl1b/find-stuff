@@ -15,6 +15,22 @@ typed, and everything runs locally.
 - “All terms” vs “Any term” logic
 - Limiting results and filtering by file extensions at search time
 
+## TL;DR
+
+- Build the index under a root folder, choosing the extensions you care about:
+
+```bash
+find-stuff rebuild-index D:\code --db D:\code\.find_stuff\index.sqlite3 --ext py --ext md
+```
+
+- Search it:
+
+```bash
+find-stuff search --db D:\code\.find_stuff\index.sqlite3 foo bar
+```
+
+---
+
 ## Install
 
 The steps below are written for beginners. They show how to:
@@ -120,22 +136,6 @@ find-stuff --help
 ```
 
 Later, when you come back to use the tool again, just re-activate the environment (step 2) and you’re ready.
-
-## TL;DR
-
-- Build the index under a root folder, choosing the extensions you care about:
-
-```bash
-find-stuff rebuild-index D:\code --db D:\code\.find_stuff\index.sqlite3 --ext py --ext md
-```
-
-- Search it:
-
-```bash
-find-stuff search --db D:\code\.find_stuff\index.sqlite3 foo bar
-```
-
----
 
 ## CLI
 
