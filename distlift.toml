@@ -1,0 +1,17 @@
+# distlift — srv-worker release automation
+#
+# Version policy and manual gates: docs/12. release.md
+# Precedence: CLI flags > DISTLIFT_* env > this file > user/system config.
+
+[release]
+language = "python"
+mode = "simple"
+manifest_path = "pyproject.toml"
+version_source = "manifest"
+tag_template = "v{version}"
+remotes = ["origin"]
+
+[changelog]
+enabled = true
+path = "CHANGELOG.md"
+title = "Changelog"
